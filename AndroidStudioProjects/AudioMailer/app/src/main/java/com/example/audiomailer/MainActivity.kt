@@ -25,6 +25,8 @@ import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
+    private var audioUri: Uri? = null // Variable global
+
     private var secondsElapsed = 0
     private var handler = Handler(Looper.getMainLooper())
     private lateinit var runnable: Runnable
@@ -35,10 +37,40 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnStop: Button
     private lateinit var btnSend: Button
     private lateinit var listStudents: ListView
-    private val studentsEmails = arrayListOf("juan@colegio.com", "ana@colegio.com","hugobarre122006@gmail.com")
+
+    private lateinit var adapter: ArrayAdapter<String>
+    private val allEmails = mutableListOf<String>()
 
     companion object {
         private const val REQUEST_PERMISSION = 200
+    }
+
+    // Lista txt
+    private val FILE_NAME = "emails_list.txt"
+
+    // Guarda un correo nuevo en una línea nueva del archivo
+    private fun saveEmailToFile(email: String) {
+        try {
+            val fileOutputStream = openFileOutput(FILE_NAME, MODE_APPEND)
+            fileOutputStream.write((email + "\n").toByteArray())
+            fileOutputStream.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    // Lee el archivo y devuelve una lista de correos
+    private fun readEmailsFromFile(): List<String> {
+        val emails = mutableListOf<String>()
+        try {
+            val fileInputStream = openFileInput(FILE_NAME)
+            fileInputStream.bufferedReader().useLines { lines ->
+                lines.forEach { emails.add(it) }
+            }
+        } catch (e: Exception) {
+            // Si el archivo no existe aún, devolvemos lista vacía
+        }
+        return emails
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,7 +83,12 @@ class MainActivity : AppCompatActivity() {
         btnSend = findViewById(R.id.btnSend)
         listStudents = findViewById(R.id.listStudents)
 
-        val adapter = ArrayAdapter(this, android.R.layout.simple_list_item_multiple_choice, studentsEmails)
+        val editEmail = findViewById<android.widget.EditText>(R.id.editEmail)
+        val btnAddEmail = findViewById<Button>(R.id.btnAddEmail)
+
+        allEmails.addAll(readEmailsFromFile())
+
+        adapter = ArrayAdapter(this, android.R.layout.simple_list_item_multiple_choice, allEmails)
         listStudents.adapter = adapter
         listStudents.choiceMode = ListView.CHOICE_MODE_MULTIPLE
 
@@ -66,9 +103,28 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
+        btnAddEmail.setOnClickListener {
+            val email = editEmail.text.toString().trim()
+            if (email.isNotEmpty() && android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+                saveEmailToFile(email) // Guarda en el TXT
+                allEmails.add(email)   // Añade a la lista en memoria
+                adapter.notifyDataSetChanged() // Refresca la lista visual
+                editEmail.text.clear()
+                Toast.makeText(this, "Correo añadido", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Email no válido", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         btnRecord.setOnClickListener { startRecording() }
         btnStop.setOnClickListener { stopRecording() }
-        btnSend.setOnClickListener { sendEmail() }
+        btnSend.setOnClickListener {
+            audioUri?.let { uri ->
+                sendEmail(uri)
+            } ?: run {
+                Toast.makeText(this, "Primero graba un audio", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     //Timer
@@ -118,12 +174,26 @@ class MainActivity : AppCompatActivity() {
 
     private fun stopRecording() {
         recorder?.apply {
-            stop()
-            stopTimer()
-            release()
+            try {
+                stop()
+                release()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
         recorder = null
-        Toast.makeText(this, "Stopped. Ready to send.", Toast.LENGTH_SHORT).show()
+        stopTimer()
+
+        // IMPORTANTE: Usamos 'fileName' que es donde grabamos el audio real
+        val audioFile = File(fileName)
+        if (audioFile.exists()) {
+            audioUri = FileProvider.getUriForFile(
+                this,
+                "${packageName}.fileprovider",
+                audioFile
+            )
+            Toast.makeText(this, "Grabación guardada", Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onPause() {
@@ -133,38 +203,29 @@ class MainActivity : AppCompatActivity() {
         stopTimer()
     }
 
-    private fun sendEmail() {
-        val selectedEmails = ArrayList<String>()
-        for (i in 0 until listStudents.count) {
-            if (listStudents.isItemChecked(i)) selectedEmails.add(studentsEmails[i])
+    private fun sendEmail(fileUri: Uri) {
+        val selectedEmails = mutableListOf<String>()
+        val checkedPositions = listStudents.checkedItemPositions
+
+        for (i in 0 until allEmails.size) {
+            if (checkedPositions.get(i)) {
+                selectedEmails.add(allEmails[i])
+            }
         }
 
         if (selectedEmails.isEmpty()) {
-            Toast.makeText(this, "Select a student first", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Selecciona al menos un destinatario de la lista", Toast.LENGTH_SHORT).show()
             return
         }
 
-        val audioFile = File(fileName)
-        if (!audioFile.exists()) {
-            Toast.makeText(this, "Record something first!", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        // Generate URI - Ensure this authority matches your Manifest!
-        val fileUri: Uri = FileProvider.getUriForFile(
-            this,
-            "$packageName.fileprovider",
-            audioFile
-        )
-
-        val emailIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "audio/3gp"
-            putExtra(Intent.EXTRA_EMAIL, selectedEmails.toTypedArray())
-            putExtra(Intent.EXTRA_SUBJECT, "Audio Memo")
-            putExtra(Intent.EXTRA_STREAM, fileUri)
+        val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "message/rfc822"
+            putExtra(Intent.EXTRA_EMAIL, selectedEmails.toTypedArray()) // Enviamos solo los seleccionados
+            putExtra(Intent.EXTRA_SUBJECT, "Audio Grabado")
+            putExtra(Intent.EXTRA_TEXT, "Adjunto envío el audio.")
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, arrayListOf(fileUri))
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-
-        startActivity(Intent.createChooser(emailIntent, "Send email via..."))
+        startActivity(Intent.createChooser(intent, "Enviar correo con..."))
     }
 }

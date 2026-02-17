@@ -24,6 +24,27 @@
         android:layout_height="wrap_content"
         android:text="Enviar" />
 
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="8dp">
+
+    <EditText
+        android:id="@+id/editEmail"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:hint="Nuevo correo"
+        android:inputType="textEmailAddress" />
+
+    <Button
+        android:id="@+id/btnAddEmail"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Añadir" />
+</LinearLayout>
+
     <ListView
         android:id="@+id/listStudents"
         android:layout_width="match_parent"
