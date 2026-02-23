@@ -86,6 +86,25 @@ class MainActivity : AppCompatActivity() {
         val editEmail = findViewById<android.widget.EditText>(R.id.editEmail)
         val btnAddEmail = findViewById<Button>(R.id.btnAddEmail)
 
+        listStudents.setOnItemLongClickListener { _, _, position, _ ->
+            val emailToRemove = allEmails[position]
+
+            // Creamos un diálogo de alerta para confirmar
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Eliminar correo")
+                .setMessage("¿Estás seguro de que quieres eliminar a $emailToRemove?")
+                .setPositiveButton("Eliminar") { _, _ ->
+                    allEmails.removeAt(position) // Quitar de la lista en memoria
+                    updateEmailFile()            // Guardar los cambios en el TXT
+                    adapter.notifyDataSetChanged() // Refrescar la pantalla
+                    Toast.makeText(this, "Eliminado correctamente", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Cancelar", null)
+                .show()
+
+            true // Indica que hemos gestionado el evento
+        }
+
         allEmails.addAll(readEmailsFromFile())
 
         adapter = ArrayAdapter(this, android.R.layout.simple_list_item_multiple_choice, allEmails)
@@ -214,18 +233,41 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (selectedEmails.isEmpty()) {
-            Toast.makeText(this, "Selecciona al menos un destinatario de la lista", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Selecciona al menos un destinatario", Toast.LENGTH_SHORT).show()
             return
         }
 
         val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            // Establecemos el paquete de Gmail directamente
+            setPackage("com.google.android.gm")
             type = "message/rfc822"
-            putExtra(Intent.EXTRA_EMAIL, selectedEmails.toTypedArray()) // Enviamos solo los seleccionados
+            putExtra(Intent.EXTRA_EMAIL, selectedEmails.toTypedArray())
             putExtra(Intent.EXTRA_SUBJECT, "Audio Grabado")
             putExtra(Intent.EXTRA_TEXT, "Adjunto envío el audio.")
             putParcelableArrayListExtra(Intent.EXTRA_STREAM, arrayListOf(fileUri))
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        startActivity(Intent.createChooser(intent, "Enviar correo con..."))
+
+        try {
+            // Al especificar el paquete, intentará abrir Gmail directamente
+            startActivity(intent)
+        } catch (e: Exception) {
+            // Si Gmail no está instalado, usamos el selector normal para que no falle
+            Toast.makeText(this, "Gmail no instalado, abriendo selector...", Toast.LENGTH_SHORT).show()
+            startActivity(Intent.createChooser(intent, "Enviar correo..."))
+        }
+    }
+
+    private fun updateEmailFile() {
+        try {
+            // Al usar MODE_PRIVATE sin APPEND, el archivo se vacía y se escribe de nuevo
+            val fileOutputStream = openFileOutput(FILE_NAME, MODE_PRIVATE)
+            for (email in allEmails) {
+                fileOutputStream.write((email + "\n").toByteArray())
+            }
+            fileOutputStream.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }

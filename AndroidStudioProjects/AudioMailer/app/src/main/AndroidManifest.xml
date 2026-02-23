@@ -40,4 +40,8 @@
 
     </application>
 
+    <queries>
+        <package android:name="com.google.android.gm" />
+    </queries>
+
 </manifest>
